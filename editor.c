@@ -8,7 +8,7 @@ void init(State* state, Output* output) {
 
 	byte* text_tape = 0;
 	tape_reserve(text_tape, GIGABYTE/2);
-	state->text_pool = cast(Pool*, text_tape);
+	state->text_pool = cast(MamPool*, text_tape);
 	pool_init(state->text_pool, GIGABYTE/2);
 }
 
@@ -46,7 +46,7 @@ static LineStart* push_text_right_(TextBuffer* buffer, uint32 buffer_i, LineStar
 		buffer->text_size = buffer->text_size + 1;
 		line = 0;
 	}
-	for(uint i = buffer->text_size; i > buffer_i, i -= 1) {
+	for(uint i = buffer->text_size; i > buffer_i; i -= 1) {
 		buffer->text[i] = buffer->text[i - 1];
 	}
 	return line;
@@ -62,17 +62,17 @@ static void insert_char_at(Pane* pane, Cursor* cursor, char ch) {
 
 	//push_text into text list
 	char overflow_ch = cur_buffer->text[TEXT_CAPACITY - 1];
-	LineStart* oveflow_line = push_text_right_(cur_buffer, buffer_i, cur_line);
+	LineStart* oveflow_line = push_text_right_(cur_buffer, buffer_i, cur_line, line_i);
 	if(oveflow_line) {
 		TextBuffer* next_buffer = cur_buffer->next;
 		if((next_buffer->text_size < TEXT_CAPACITY) && (next_buffer != pane->head_text_buffer)) {
 			//next has space and does not wrap to the beginning
 			//push text in next
-			push_text_right_(next_buffer, 0, oveflow_line);
+			push_text_right_(next_buffer, 0, oveflow_line, 0);
 			next_buffer->text[0] = overflow_ch;
 		} else {
 			//append new page, the next one is full, or the current one is at the end of the document
-			TextBuffer* new_buffer = pool_reserve(TextBuffer, pane->text_pool);
+			TextBuffer* new_buffer = mam_pool_alloc(TextBuffer, pane->text_pool);
 			cur_buffer->next = new_buffer;
 			next_buffer->pre = new_buffer;
 			new_buffer->next = next_buffer;
@@ -88,10 +88,10 @@ static void insert_char_at(Pane* pane, Cursor* cursor, char ch) {
 		//NOTE: cursors auto update line
 		LineStart* new_line;//TODO: Allocate
 		LineStart* next = cur_line->next;
-		next->pre = new_line;
 		cur_line->next = new_line;
+		new_line->pre = cur_line;
+		next->pre = new_line;
 		new_line->next = next;
-		new_line->pre = pre;
 		new_line->line_size = cur_line->line_size - line_i;
 		cur_line->line_size = line_i + 1;
 		if(buffer_i + 1 < cur_buffer->text_size) {
@@ -124,8 +124,8 @@ static bool push_text_left_(TextBuffer* buffer, uint32 buffer_i, LineStart* line
 		//relink cur_line's cursor list to pre_line's
 		Cursor* next_cursor0 = cur_line->head_cursor;
 		if(next_cursor0) {
+			Cursor* next_cursor1 = pre_line->head_cursor;
 			if(next_cursor1) {
-				Cursor* next_cursor1 = pre_line->head_cursor;
 				Cursor* pre_cursor1 = next_cursor1->pre;
 				Cursor* pre_cursor0 = next_cursor0->pre;
 				pre_cursor0->next = next_cursor1;
@@ -155,7 +155,7 @@ static bool push_text_left_(TextBuffer* buffer, uint32 buffer_i, LineStart* line
 		line->buffer_i -= 1;
 		line = line->next;
 	}
-	for(uint i = buffer_i; i + 1 < buffer->text_size, i += 1) {
+	for(uint i = buffer_i; i + 1 < buffer->text_size; i += 1) {
 		buffer->text[i] = buffer->text[i + 1];
 	}
 	buffer->text_size -= 1;
@@ -174,7 +174,7 @@ static void delete_char_at(Pane* pane, Cursor* cursor) {
 	TextBuffer* cur_buffer = get_buffer_from_cursor(cursor, &buffer_i);
 
 	cur_line->line_size -= 1;
-	bool is_empty = push_text_left_(cur_buffer, buffer_i, cur_line);
+	bool is_empty = push_text_left_(cur_buffer, buffer_i, cur_line, line_i);
 	if(is_empty) {
 		//remove cur_buffer from text list
 		TextBuffer* next_buffer = cur_buffer->next;
@@ -230,13 +230,13 @@ static void move_cursor_left (Cursor* cursor, LineStart* head_line) {
 	if(cursor->line_i - 1 >= 0) {
 		cursor->line_i -= 1;
 	} else if(line != head_line) {
-		LineStart pre = line->pre;
+		LineStart* pre = line->pre;
 		cursor->line_i = pre->line_size - 1;
 		cursor_set_line(cursor, pre);
 	}
 }
 static void move_cursor_down (Cursor* cursor, LineStart* head_line) {
-	LineStart next = cursor->line->next;
+	LineStart* next = cursor->line->next;
 	if(next != head_line) {
 		cursor_set_line(cursor, next);
 	}
@@ -251,12 +251,12 @@ static void move_cursor_up   (Cursor* cursor, LineStart* head_line) {
 
 static void undo_record_delete(Pane* pane, Cursor* cursor) {
 	UndoData* undo;//--<--
-	
+
 }
 
 
 void update(State* state, KeyCode* keys, uint32 keys_size, Output* output) {
-	UserData user = &state->user;
+	UserData* user = &state->user;
 	for_each_in(key_event, keys, keys_size) {
 		uint32 key;
 		bool is_down = key_event > 0;

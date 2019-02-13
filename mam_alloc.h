@@ -179,9 +179,9 @@ MAM_ALLOC__DECLS void* mam_tape_reserven(MamTape* tape, mam_int item_n) {
 	return mam_ptr_add(void, tape, mam_tape_reservei(tape, item_n));
 }
 #define mam_tape_reserve(type, tape, item_n) ((type*)mam_tape_reserven(tape, item_n))
-MAM__DECR mam_int mam_tape_reserveib(void* buffer, mam_int item_n) {
+MAM_ALLOC__DECLS mam_int mam_tape_reserveib(void* buffer, mam_int item_n) {
 	MamTape* tape = mam_tape_from_buffer(buffer);
-	return (mam_tape_reservei(tape) - sizeof(MamTape))/tape->item_size;
+	return (mam_tape_reservei(tape, item_n) - sizeof(MamTape))/tape->item_size;
 }
 #define mam_tape_reserveb(buffer, item_n) (&buffer[mam_tape_reserveib(buffer, item_n)])
 
@@ -338,11 +338,11 @@ MAM_ALLOC__DECLS MamHeap* mam_heap_init(void* alloc_ptr, mam_int alloc_size) {
 	return heap;
 }
 
-MAM_ALLOC__DECLS MamPool* mam_heap_new(void) {
+MAM_ALLOC__DECLS MamHeap* mam_heap_new(void) {
 	mam_int alloc_size = sizeof(MamHeap) + 16;
-	MamHeap* pool = (MamHeap*)(MAM_ALLOC_MALLOC(alloc_size));
-	mam_heap_initn(pool, alloc_size, item_size);
-	return pool;
+	MamHeap* heap = (MamHeap*)(MAM_ALLOC_MALLOC(alloc_size));
+	mam_heap_initn(heap, alloc_size);
+	return heap;
 }
 
 typedef struct Mam__Block {
@@ -378,8 +378,8 @@ MAM_ALLOC__DECLS void* mam_heap_reallocn(MamHeap* heap, void* ptr, mam_int size)
 }
 #define mam_heap_realloc(type, heap, ptr, size) ((type*)mam_heap_reallocn(heap, ptr, size))
 
-#ifdef MAM_ALLOCATOR_IMPLEMENTATION
-#undef MAM_ALLOCATOR_IMPLEMENTATION
+#ifdef MAM_ALLOC_IMPLEMENTATION
+#undef MAM_ALLOC_IMPLEMENTATION
 MAM_ALLOC__DECLR mam_int mam_heap_alloci(MamHeap* heap, mam_int size) {
 	size = mam_checker_correct_size(size);
 	size = mam__heap_correct_size(size);

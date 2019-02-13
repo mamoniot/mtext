@@ -1,5 +1,7 @@
 //By Monica Moniot
 #include "basic.h"
+#define MAM_ALLOC_IMPLEMENTATION
+#include "mam_alloc.h"
 
 
 //negative keycodes represent a key being let up
@@ -8,7 +10,7 @@ typedef int32 KeyCode;
 
 
 typedef struct {
-
+	byte i;
 } Output;
 
 
@@ -16,27 +18,28 @@ typedef struct {
 typedef int8 bool;
 #endif
 
-#define TEXT_CAPACITY (256 - 2*sizeof(TextPage*) - sizeof(BufferPos))
-typedef struct {
-	TextBuffer* next;
-	TextBuffer* pre;
-	BufferPos text_size;
+#define TEXT_CAPACITY (256 - 2*sizeof(struct TextBuffer*) - sizeof(uint32))
+typedef struct TextBuffer {
+	struct TextBuffer* next;
+	struct TextBuffer* pre;
+	uint32 text_size;
 	char text[TEXT_CAPACITY];
 } TextBuffer;
-typedef struct {
-	LineStart* next;
-	LineStart* pre;
-	Cursor* head_cursor;
+
+typedef struct LineStart {
+	struct LineStart* next;
+	struct LineStart* pre;
+	struct Cursor* head_cursor;
 	uint32 line_size;//NOTE: does include the newline
 	uint32 buffer_i;
 	TextBuffer* buffer;
 } LineStart;
 
-typedef struct {
+typedef struct Cursor {
 	LineStart* line;
 	uint32 line_i;//NOTE: can be any value, regardless of the current line's size. min(line_i, line->line_size - 1)
-	Cursor* next;
-	Cursor* pre;
+	struct Cursor* next;
+	struct Cursor* pre;
 } Cursor;
 
 
@@ -50,15 +53,16 @@ typedef union {
 	relptr pre;
 } UndoItem;
 typedef struct {
-	Stack* branch[2];
+	MamStack* branch[2];
 } UndoData;
 
 typedef struct {
 	LineStart* head_line;
 	TextBuffer* head_text_buffer;
+	MamPool* text_pool;
 } Pane;
 
 typedef struct {
-	Pool* text_pool;
-	TextPage* head_text_page;
+	MamPool* text_pool;
+	TextBuffer* head_text_page;
 } State;
