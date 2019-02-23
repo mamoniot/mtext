@@ -30,6 +30,15 @@ extern "C" {
 #define MAM_ALLOC_MEMCPY memcpy
 #endif
 
+#ifndef MAM_ALLOC_ASSERT
+#ifdef MAM_ALLOC_DEBUG
+#include <assert.h>
+#define MAM_ALLOC_ASSERT(is, msg) assert((is) && msg);
+#else
+#define MAM_ALLOC_ASSERT(is, msg) 0
+#endif
+#endif
+
 #ifndef MAM_ALLOC_SIZE_T
 #define MAM_ALLOC_SIZE_T int
 #endif
@@ -47,7 +56,6 @@ typedef MAM_ALLOC_BYTE_T mam_byte;
 #define MAM_ALLOC__DECLR
 #endif
 #define MAM_ALLOC__DECLS static inline
-//MAM_ALLOC_ENABLE_DEBUG
 
 #ifndef MAM_ALLOC_COOKIE
 #define MAM_ALLOC_COOKIE 1234567890
@@ -97,20 +105,24 @@ typedef union MamHeap {
 } MamHeap;
 
 
-
-MAM_ALLOC__DECLS void mam_check(void* allocator, mam_int item, mam_int item_size) {
-	//The bottom of the buffer was overwritten
-	assert((*((int*)((mam_byte*)allocator + item) - 1) == MAM_ALLOC_COOKIE) && "Bottom of buffer was overwritten");
-	//The top of the buffer was overwritten
-	assert((*(int*)((mam_byte*)allocator + item + item_size) == MAM_ALLOC_COOKIE) && "Top of buffer was overwritten");
+#ifdef MAM_ALLOC_DEBUG
+#define mam__overflow_msg "mam_alloc: buffer overflow detected"
+#define mam__underflow_msg "mam_alloc: bottom of buffer was overwritten; could be a buffer underflow or an overflow of the adjacent buffer"
+MAM_ALLOC__DECLS void mam_checki(void* allocator, mam_int item, mam_int item_size) {
+	MAM_ALLOC_ASSERT(*((int*)((mam_byte*)allocator + item) - 1) == MAM_ALLOC_COOKIE, mam__underflow_msg);
+	MAM_ALLOC_ASSERT(*(int*)((mam_byte*)allocator + item + item_size) == MAM_ALLOC_COOKIE, mam__overflow_msg);
 }
-MAM_ALLOC__DECLS void mam_check_at(void* ptr, mam_int ptr_size) {
-	assert((*((int*)ptr - 1) == MAM_ALLOC_COOKIE) && "Bottom of buffer was overwritten");
-	assert((*(int*)((mam_byte*)ptr + ptr_size) == MAM_ALLOC_COOKIE) && "Top of buffer was overwritten");
+MAM_ALLOC__DECLS void mam_check(void* ptr, mam_int ptr_size) {
+	MAM_ALLOC_ASSERT(*((int*)ptr - 1) == MAM_ALLOC_COOKIE, mam__underflow_msg);
+	MAM_ALLOC_ASSERT(*(int*)((mam_byte*)ptr + ptr_size) == MAM_ALLOC_COOKIE, mam__overflow_msg);
+}
+MAM_ALLOC__DECLS void mam_check_belowi(void* allocator, mam_int item) {
+	MAM_ALLOC_ASSERT(*((int*)((mam_byte*)allocator + item) - 1) == MAM_ALLOC_COOKIE, mam__underflow_msg);
 }
 MAM_ALLOC__DECLS void mam_check_below(void* ptr) {
-	assert(*((int*)ptr - 1) == MAM_ALLOC_COOKIE);//The bottom of the buffer was overwritten
+	MAM_ALLOC_ASSERT(*((int*)ptr - 1) == MAM_ALLOC_COOKIE, mam__underflow_msg);
 }
+#define mam_get_ptr(type, allocator, item) (mam_check_below(mam_ptr_add(mam_byte, allocator, item)), mam_ptr_add(type, allocator, item))
 
 #define mam_checker_correct_size(size)   (size + 2*sizeof(int))
 #define mam_checker_uncorrect_size(size) (size - 2*sizeof(int))
@@ -125,11 +137,26 @@ MAM_ALLOC__DECLS void mam_checker_mark(void* allocator, mam_int item, mam_int it
 MAM_ALLOC__DECLS void mam_checker_unmark(void* allocator, mam_int item, mam_int item_size) {
 	int* bot_cookie = mam_ptr_add(int, allocator, item);
 	int* top_cookie = mam_ptr_add(int, allocator, item + item_size) - 1;
-	assert(*bot_cookie == MAM_ALLOC_COOKIE);
-	assert(*top_cookie == MAM_ALLOC_COOKIE);
+	MAM_ALLOC_ASSERT(*bot_cookie == MAM_ALLOC_COOKIE, mam__underflow_msg);
+	MAM_ALLOC_ASSERT(*top_cookie == MAM_ALLOC_COOKIE, mam__overflow_msg);
 	*bot_cookie = 0;
 	*top_cookie = 0;
 }
+
+#else
+#define mam_checki(allocator, item, item_size) 0
+#define mam_check(ptr, ptr_size) 0
+#define mam_check_below(ptr) 0
+#define mam_get_ptr(type, allocator, item) mam_ptr_add(type, allocator, item)
+
+#define mam_checker_correct_size(size)   size
+#define mam_checker_uncorrect_size(size) size
+#define mam_checker_correct_item(item)   item
+#define mam_checker_uncorrect_item(item) item
+
+#define mam_checker_mark(allocator, item, item_size) 0
+#define mam_checker_unmark(allocator, item, item_size) 0
+#endif
 
 
 #define mam__grow(allocator, n, offset) {\
@@ -138,12 +165,10 @@ MAM_ALLOC__DECLS void mam_checker_unmark(void* allocator, mam_int item, mam_int 
 	mam_int new_capacity = (dbl_capacity > min_needed) ? dbl_capacity : min_needed;\
 	mam_int alloc_size = offset + new_capacity;\
 	allocator = (MAM_ALLOC_REALLOC(((void*)allocator), alloc_size));\
-	if(!allocator) {\
-	}\
 }
 
 
-#define mam_tape_get_buffer(type, tape) mam_ptr_add(type, tape, sizeof(MamTape))//assert(sizeof(type) == (tape)->item_size)
+#define mam_tape_get_buffer(type, tape) (mam_ptr_add(type, tape, sizeof(MamTape)), MAM_ALLOC_ASSERT(sizeof(type) == (tape)->item_size), "mam_alloc: attempt to get a tape buffer of the wrong type size")
 #define mam_tape_from_buffer(buffer) mam_ptr_add(MamTape, buffer, -sizeof(MamTape))
 
 MAM_ALLOC__DECLS MamTape* mam_tape_initn(void* alloc_ptr, mam_int alloc_size, mam_int item_size) {
@@ -162,6 +187,7 @@ MAM_ALLOC__DECLS MamTape* mam_tape_newn(mam_int item_size) {
 	mam_int init_capacity = 4*item_size;
 	mam_int alloc_size = sizeof(MamTape) + init_capacity;
 	MamTape* tape = (MamTape*)(MAM_ALLOC_MALLOC(alloc_size));
+	MAM_ALLOC_ASSERT(tape != 0, "mam_alloc: failed to allocate memory for tape");
 	mam_tape_init_nt(tape, alloc_size, item_size);
 	return tape;
 }
@@ -170,6 +196,7 @@ MAM_ALLOC__DECLS mam_int mam_tape_reservei(MamTape* tape, mam_int item_n) {
 	mam_int size = item_n*tape->item_size;
 	if(mam_will_overflow(tape, size)) {
 		mam__grow(tape, size, sizeof(MamTape));
+		MAM_ALLOC_ASSERT(tape != 0, "mam_alloc: failed to reallocate memory for tape")
 	}
 	mam_int item = tape->mem_size;
 	tape->mem_size += size;
@@ -189,6 +216,7 @@ MAM_ALLOC__DECLS void mam_tape_append(MamTape* tape, void* item) {
 	mam_int size = tape->item_size;
 	if(mam_will_overflow(tape, size)) {
 		mam__grow(tape, size, sizeof(MamTape));
+		MAM_ALLOC_ASSERT(tape != 0, "mam_alloc: failed to reallocate memory for tape")
 	}
 	void* ret = ((void*)tape->mem[tape->mem_size]);
 	tape->mem_size += size;
@@ -202,10 +230,6 @@ MAM_ALLOC__DECLS mam_int mam_tape_size(MamTape* tape) {
 #define mam_tape_sizeb(buffer) (mam_tape_from_buffer(buffer)->mem_size - sizeof(MamTape))/sizeof(*buffer)
 
 
-#define ptr_get(type, allocator, item) (mam_check_below(mam_ptr_add(mam_byte, allocator, item)), mam_ptr_add(type, allocator, item))
-
-
-
 MAM_ALLOC__DECLS MamStack* mam_stack_init(void* alloc_ptr, mam_int alloc_size) {
 	MamStack* stack = (MamStack*)alloc_ptr;
 	stack->mem_size = sizeof(MamStack) + sizeof(mam_int);
@@ -217,6 +241,7 @@ MAM_ALLOC__DECLS MamStack* mam_stack_init(void* alloc_ptr, mam_int alloc_size) {
 MAM_ALLOC__DECLS MamStack* mam_stack_new(void) {
 	mam_int alloc_size = sizeof(MamStack) + 16;
 	MamStack* stack = (MamStack*)(MAM_ALLOC_MALLOC(alloc_size));
+	MAM_ALLOC_ASSERT(stack != 0, "mam_alloc: failed to allocate memory for stack");
 	mam_stack_init(stack, alloc_size);
 	return stack;
 }
@@ -227,6 +252,7 @@ MAM_ALLOC__DECLS mam_int mam_stack_pushi(MamStack* stack, mam_int size) {
 
 	if(mam_will_overflow(stack, alloc_size)) {
 		mam__grow(stack, alloc_size, sizeof(MamStack));
+		MAM_ALLOC_ASSERT(stack != 0, "mam_alloc: failed to reallocate memory for stack")
 	}
 	mam_int item = stack->mem_size;
 	stack->mem_size += size;
@@ -242,6 +268,7 @@ MAM_ALLOC__DECLS void mam_stack_extend(MamStack* stack, mam_int size) {
 
 	if(mam_will_overflow(stack, size)) {
 		mam__grow(stack, size, sizeof(MamStack));
+		MAM_ALLOC_ASSERT(stack != 0, "mam_alloc: failed to reallocate memory for stack")
 	}
 	stack->mem_size += size;
 	mam_checker_mark(stack, pre_stack_size, stack->mem_size - pre_stack_size - sizeof(mam_int));
@@ -251,11 +278,12 @@ MAM_ALLOC__DECLS void mam_stack_extend(MamStack* stack, mam_int size) {
 MAM_ALLOC__DECLS void mam_stack_pop(MamStack* stack) {
 	mam_int pre_stack_size = *(mam_ptr_add(mam_int, stack, stack->mem_size) - 1);
 
-	assert(pre_stack_size > 0);
+	MAM_ALLOC_ASSERT(pre_stack_size > 0, "mam_alloc: attempt to pop stack when stack was empty");
 	mam_checker_unmark(stack, pre_stack_size, stack->mem_size - pre_stack_size - sizeof(mam_int));
 
 	stack->mem_size = pre_stack_size;
 }
+
 MAM_ALLOC__DECLS mam_int mam_stack_get_lasti(MamStack* stack) {
 	mam_int pre_stack_size = *(mam_ptr_add(mam_int, stack, stack->mem_size) - 1);
 	return mam_checker_correct_item(pre_stack_size);
@@ -291,6 +319,7 @@ MAM_ALLOC__DECLS MamPool* mam_pool_initn(void* alloc_ptr, mam_int alloc_size, ma
 MAM_ALLOC__DECLS MamPool* mam_pool_newn(mam_int item_size) {
 	mam_int alloc_size = sizeof(MamPool) + 4*item_size;
 	MamPool* pool = (MamPool*)(MAM_ALLOC_MALLOC(alloc_size));
+	MAM_ALLOC_ASSERT(pool != 0, "mam_alloc: failed to allocate memory for pool");
 	mam_pool_initn(pool, alloc_size, item_size);
 	return pool;
 }
@@ -304,6 +333,7 @@ MAM_ALLOC__DECLS mam_int mam_pool_alloci(MamPool* pool) {
 		mam_int size = pool->item_size;
 		if(mam_will_overflow(pool, size)) {
 			mam__grow(pool, size, sizeof(MamPool));
+			MAM_ALLOC_ASSERT(pool != 0, "mam_alloc: failed to reallocate memory for pool")
 		}
 		item = pool->mem_size;
 		pool->mem_size += size;
@@ -341,6 +371,7 @@ MAM_ALLOC__DECLS MamHeap* mam_heap_init(void* alloc_ptr, mam_int alloc_size) {
 MAM_ALLOC__DECLS MamHeap* mam_heap_new(void) {
 	mam_int alloc_size = sizeof(MamHeap) + 16;
 	MamHeap* heap = (MamHeap*)(MAM_ALLOC_MALLOC(alloc_size));
+	MAM_ALLOC_ASSERT(heap != 0, "mam_alloc: failed to allocate memory for heap");
 	mam_heap_initn(heap, alloc_size);
 	return heap;
 }
@@ -436,6 +467,7 @@ MAM_ALLOC__DECLR mam_int mam_heap_alloci(MamHeap* heap, mam_int size) {
 	//no free space, push the size
 	if(mam_will_overflow(heap, size)) {
 		mam__grow(heap, size, sizeof(MamHeap));
+		MAM_ALLOC_ASSERT(heap != 0, "mam_alloc: failed to reallocate memory for heap")
 	}
 	mam_int item = heap->mem_size;
 	Mam__Block* block = mam_ptr_add(Mam__Block, heap, item);
@@ -461,7 +493,7 @@ MAM_ALLOC__DECLR void mam_heap_freei(MamHeap* heap, mam_int item)  {
 	mam_int next_i = mam__block_get_next(cur_block, cur_i);
 	Mam__Block* next_block = mam_ptr_add(Mam__Block, heap, next_i);
 
-	assert(!cur_block->free_pre);
+	MAM_ALLOC_ASSERT(!cur_block->free_pre, "mam_alloc: attempted to free freed memory");
 	mam_checker_unmark(heap, item, cur_block->size - sizeof(Mam__Block));
 
 	mam_int head_i = heap->head_block;
